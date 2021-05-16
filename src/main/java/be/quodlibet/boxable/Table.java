@@ -654,8 +654,8 @@ public abstract class Table<T extends PDPage> {
 								cursorY += 4 * widthOfSpace / 1000 * cell.getFontSize();
 							} else {
 								PDStreamUtils.rect(tableContentStream, cursorX, cursorY + halfHeight,
-										token.getWidth(currentFont) / 1000 * cell.getFontSize(),
-                                        widthOfSpace / 1000 * cell.getFontSize(),
+										token.getWidth(currentFont) / 1000 * cell.getFontSize() * 1.4f,
+                                        widthOfSpace / 1000 * cell.getFontSize() * 1.4f,
 										cell.getTextColor());
 								// move cursorX for two characters (one for
 								// bullet, one for space after bullet)

@@ -41,8 +41,8 @@ public class Paragraph {
 	private float lineSpacing;
 
 	private final static int DEFAULT_TAB = 4;
-	private final static int DEFAULT_TAB_AND_BULLET = 6;
-	private final static int BULLET_SPACE = 2;
+	private final static int DEFAULT_TAB_AND_BULLET = 8;
+	private final static int BULLET_SPACE = 6;
 
 	private boolean drawDebug;
 	private final Map<Integer, Float> lineWidths = new HashMap<>();

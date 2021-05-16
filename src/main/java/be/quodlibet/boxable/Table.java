@@ -643,15 +643,15 @@ public abstract class Table<T extends PDPage> {
 							break;
 						case BULLET:
                             float widthOfSpace = currentFont.getSpaceWidth();
-                            float halfHeight = FontUtils.getHeight(currentFont, cell.getFontSize()) / 2;
+                            float halfHeight = FontUtils.getHeight(currentFont, cell.getFontSize()) / 2.5f;
 							if (cell.isTextRotated()) {
 								PDStreamUtils.rect(tableContentStream, cursorX + halfHeight, cursorY,
-										token.getWidth(currentFont) / 1000 * cell.getFontSize(),
-                                        widthOfSpace / 1000 * cell.getFontSize(),
+										token.getWidth(currentFont) / 1000 * cell.getFontSize() * 1.4f,
+                                        widthOfSpace / 1000 * cell.getFontSize() * 1.4f,
 										cell.getTextColor());
 								// move cursorY for two characters (one for
 								// bullet, one for space after bullet)
-								cursorY += 2 * widthOfSpace / 1000 * cell.getFontSize();
+								cursorY += 4 * widthOfSpace / 1000 * cell.getFontSize();
 							} else {
 								PDStreamUtils.rect(tableContentStream, cursorX, cursorY + halfHeight,
 										token.getWidth(currentFont) / 1000 * cell.getFontSize(),
@@ -659,7 +659,7 @@ public abstract class Table<T extends PDPage> {
 										cell.getTextColor());
 								// move cursorX for two characters (one for
 								// bullet, one for space after bullet)
-								cursorX += 2 * widthOfSpace / 1000 * cell.getFontSize();
+								cursorX += 4 * widthOfSpace / 1000 * cell.getFontSize();
 							}
 							break;
 						case TEXT:

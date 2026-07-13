@@ -25,6 +25,35 @@ public final class Tokenizer {
 	private Tokenizer() {
 	}
 
+	/** Extracts the href value from an anchor start tag like {@code <a href="url">}. */
+	private static String extractHref(final String tag) {
+		final int h = tag.indexOf("href");
+		if (h < 0) {
+			return null;
+		}
+		int i = tag.indexOf('=', h);
+		if (i < 0) {
+			return null;
+		}
+		i++;
+		while (i < tag.length() && tag.charAt(i) == ' ') {
+			i++;
+		}
+		if (i >= tag.length()) {
+			return null;
+		}
+		final char quote = tag.charAt(i);
+		if (quote == '"' || quote == '\'') {
+			final int end = tag.indexOf(quote, i + 1);
+			return end > 0 ? tag.substring(i + 1, end) : null;
+		}
+		int end = i;
+		while (end < tag.length() && tag.charAt(end) != ' ' && tag.charAt(end) != '>') {
+			end++;
+		}
+		return tag.substring(i, end);
+	}
+
 	private static boolean isWrapPointChar(char ch) {
 		return
 				ch == ' '  ||
@@ -209,6 +238,20 @@ public final class Tokenizer {
 									consumed = true;
 								}
 							}
+						} else if ('a' == lookahead1 && ' ' == lookahead2) {
+							// <a href="..."> -> hyperlink open, target URL kept in the token data
+							final int gt = text.indexOf('>', textIndex);
+							if (gt > 0) {
+								final String href = extractHref(text.substring(textIndex, gt));
+								if (sb.length() > 0) {
+									tokens.add(Token.text(TokenType.TEXT, sb.toString()));
+									sb.delete(0, sb.length());
+								}
+								tokens.add(new Token(TokenType.LINK_OPEN, href == null ? "" : href));
+								// jump to the '>'; the loop's textIndex++ then steps past it
+								textIndex = gt;
+								consumed = true;
+							}
 						} else if ('/' == lookahead1) {
 							// one character tags
 							if (textIndex < text.length() - 3) {
@@ -239,6 +282,15 @@ public final class Tokenizer {
 											sb.delete(0, sb.length());
 										}
 										tokens.add(CLOSE_TAG_P);
+										textIndex += 3;
+										consumed = true;
+									} else if ('a' == lookahead2) {
+										// </a> -> hyperlink close
+										if (sb.length() > 0) {
+											tokens.add(Token.text(TokenType.TEXT, sb.toString()));
+											sb.delete(0, sb.length());
+										}
+										tokens.add(new Token(TokenType.LINK_CLOSE, ""));
 										textIndex += 3;
 										consumed = true;
 									}

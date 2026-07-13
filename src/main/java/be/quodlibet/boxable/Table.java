@@ -23,6 +23,10 @@ import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;
 import org.apache.pdfbox.pdmodel.font.PDFont;
 import org.apache.pdfbox.pdmodel.font.PDType0Font;
+import org.apache.pdfbox.pdmodel.common.PDRectangle;
+import org.apache.pdfbox.pdmodel.interactive.action.PDActionURI;
+import org.apache.pdfbox.pdmodel.interactive.annotation.PDAnnotationLink;
+import org.apache.pdfbox.pdmodel.interactive.annotation.PDBorderStyleDictionary;
 import org.apache.pdfbox.pdmodel.interactive.documentnavigation.destination.PDPageXYZDestination;
 import org.apache.pdfbox.pdmodel.interactive.documentnavigation.outline.PDOutlineItem;
 
@@ -569,6 +573,12 @@ public abstract class Table<T extends PDPage> {
 				int italicCounter = 0;
 				int boldCounter = 0;
 
+				// hyperlink run currently being drawn (from LINK_OPEN to LINK_CLOSE);
+				// a link may span several lines, so we close a rectangle at each line end
+				boolean linkOpen = false;
+				float linkStartX = 0;
+				String linkUrl = null;
+
 				this.tableContentStream.setRotated(cell.isTextRotated());
 
 				// print all lines of the cell
@@ -607,6 +617,10 @@ public abstract class Table<T extends PDPage> {
 						}
 					}
 
+					// a link continuing from the previous line starts fresh at this line
+					if (linkOpen) {
+						linkStartX = cursorX;
+					}
 					// iterate through tokens in current line
 					PDFont currentFont = cell.getParagraph().getFont(false, false);
 					for (Token token : entry.getValue()) {
@@ -624,6 +638,17 @@ public abstract class Table<T extends PDPage> {
 							} else if ("i".equals(token.getData())) {
 								italicCounter = Math.max(italicCounter - 1, 0);
 							}
+							break;
+						case LINK_OPEN:
+							linkOpen = true;
+							linkUrl = token.getData();
+							linkStartX = cursorX;
+							break;
+						case LINK_CLOSE:
+							if (linkOpen && !cell.isTextRotated()) {
+								addLinkAnnotation(linkStartX, cursorX, cursorY, currentFont, cell.getFontSize(), linkUrl);
+							}
+							linkOpen = false;
 							break;
 						case PADDING:
 							cursorX += Float.parseFloat(token.getData());
@@ -681,6 +706,11 @@ public abstract class Table<T extends PDPage> {
 							break;
 						}
 					}
+					// a link still open at line end continues on the next line; close
+					// the rectangle for this line's segment now
+					if (linkOpen && !cell.isTextRotated()) {
+						addLinkAnnotation(linkStartX, cursorX, cursorY, currentFont, cell.getFontSize(), linkUrl);
+					}
 					if (cell.isTextRotated()) {
 						cursorX = cursorX + cell.getParagraph().getFontHeight() * cell.getLineSpacing();
 					} else {
@@ -695,6 +725,39 @@ public abstract class Table<T extends PDPage> {
 		// Set Y position for next row
 		yStart = yStart - rowHeight;
 
+	}
+
+	/**
+	 * Places a clickable link annotation over a drawn text run on the current page.
+	 * Coordinates are in page space; {@code baselineY} is the text baseline, so the
+	 * rectangle spans from the font descent below it to the font height above it.
+	 * No-op for empty URLs or zero-width runs.
+	 */
+	private void addLinkAnnotation(float x1, float x2, float baselineY, PDFont font, float fontSize, String url) {
+		if (url == null || url.isEmpty() || x2 - x1 < 0.5f || currentPage == null) {
+			return;
+		}
+		try {
+			float above = FontUtils.getHeight(font, fontSize);
+			float below = Math.abs(FontUtils.getDescent(font, fontSize));
+			PDRectangle rect = new PDRectangle();
+			rect.setLowerLeftX(x1);
+			rect.setLowerLeftY(baselineY - below);
+			rect.setUpperRightX(x2);
+			rect.setUpperRightY(baselineY + above);
+			PDActionURI action = new PDActionURI();
+			action.setURI(url);
+			PDAnnotationLink link = new PDAnnotationLink();
+			link.setAction(action);
+			link.setRectangle(rect);
+			// no visible border around the link
+			PDBorderStyleDictionary noBorder = new PDBorderStyleDictionary();
+			noBorder.setWidth(0);
+			link.setBorderStyle(noBorder);
+			currentPage.getAnnotations().add(link);
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
 	}
 
 	private void drawVerticalLines(Row<T> row, float rowHeight) throws IOException {

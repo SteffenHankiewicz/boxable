@@ -57,7 +57,7 @@ public class PipelineLayer {
 		if (token.getType().equals(TokenType.PADDING)) {
 			width += Float.parseFloat(token.getData());
 		}
-		if (token.getType().equals(TokenType.BULLET)) {
+		if (token.getType().equals(TokenType.BULLET) || token.getType().equals(TokenType.BULLET_SUB)) {
 			// just appending one space because our bullet width will be wide as one character of current font
 			text.append(token.getData());
 			width += (token.getWidth(font) / 1000f * fontSize);

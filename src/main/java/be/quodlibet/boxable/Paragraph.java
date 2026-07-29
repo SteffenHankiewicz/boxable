@@ -34,6 +34,10 @@ public class Paragraph {
 	private final PDFont fontBold;
 	private final PDFont fontItalic;
 	private final PDFont fontBoldItalic;
+	// monospaced faces for <code> spans; Courier as long as no fontMono* is registered
+	private final PDFont fontMono;
+	private final PDFont fontMonoBold;
+	private final PDFont fontMonoItalic;
 	private final WrappingFunction wrappingFunction;
 	private HorizontalAlignment align;
 	private TextType textType;
@@ -42,6 +46,12 @@ public class Paragraph {
 
 	private final static int DEFAULT_TAB = 4;
 	private final static int DEFAULT_TAB_AND_BULLET = 8;
+	/**
+	 * Indent of a {@code <ul type="none">} item. Such an item explains the line above it instead of
+	 * enumerating, so it sits closer to the left than a bulleted one — and since no marker is drawn,
+	 * the same value applies to the first line and to wrapped ones, keeping them flush.
+	 */
+	private final static int NO_BULLET_TAB = 4;
 	private final static int BULLET_SPACE = 6;
 
 	private boolean drawDebug;
@@ -85,15 +95,17 @@ public class Paragraph {
 		this.text = text;
 		this.font = font;
 		// check if we have different default font for italic and bold text
-		if (FontUtils.getDefaultfonts().isEmpty()) {
-			fontBold = PDType1Font.HELVETICA_BOLD;
-			fontItalic = PDType1Font.HELVETICA_OBLIQUE;
-			fontBoldItalic = PDType1Font.HELVETICA_BOLD_OBLIQUE;
-		} else {
-			fontBold = FontUtils.getDefaultfonts().get("fontBold");
-			fontBoldItalic = FontUtils.getDefaultfonts().get("fontBoldItalic");
-			fontItalic = FontUtils.getDefaultfonts().get("fontItalic");
-		}
+		// Each face is looked up on its own: a document may register some and not others — a
+		// typeface without an italic cut, say — and the missing ones then fall back to the
+		// built-in substitute instead of leaving the slot empty.
+		fontBold = defaultFontOr("fontBold", PDType1Font.HELVETICA_BOLD);
+		fontItalic = defaultFontOr("fontItalic", PDType1Font.HELVETICA_OBLIQUE);
+		fontBoldItalic = defaultFontOr("fontBoldItalic", PDType1Font.HELVETICA_BOLD_OBLIQUE);
+		// monospaced faces are optional: without them <code> falls back to Courier, which every
+		// PDF reader has built in
+		fontMono = defaultFontOr("fontMono", PDType1Font.COURIER);
+		fontMonoBold = defaultFontOr("fontMonoBold", PDType1Font.COURIER_BOLD);
+		fontMonoItalic = defaultFontOr("fontMonoItalic", PDType1Font.COURIER_OBLIQUE);
 		this.fontSize = fontSize;
 		this.width = width;
 		this.textType = textType;
@@ -118,12 +130,16 @@ public class Paragraph {
 		int lineCounter = 0;
 		boolean italic = false;
 		boolean bold = false;
+		boolean code = false;
 		boolean listElement = false;
 		PDFont currentFont = font;
 		int orderListElement = 1;
 		int numberOfOrderedLists = 0;
 		int listLevel = 0;
 		Stack<HTMLListNode> stack= new Stack<>();
+		// one entry per open list level, true where the list was opened as <ul type="none">:
+		// those items keep their indentation but get no bullet drawn
+		Stack<Boolean> bulletlessLists = new Stack<>();
 
 		final PipelineLayer textInLine = new PipelineLayer();
 		final PipelineLayer sinceLastWrapPoint = new PipelineLayer();
@@ -133,12 +149,16 @@ public class Paragraph {
 			case OPEN_TAG:
 				if (isBold(token)) {
 					bold = true;
-					currentFont = getFont(bold, italic);
+					currentFont = getFont(bold, italic, code);
 				} else if (isItalic(token)) {
 					italic = true;
-					currentFont = getFont(bold, italic);
+					currentFont = getFont(bold, italic, code);
+				} else if (isCode(token)) {
+					code = true;
+					currentFont = getFont(bold, italic, code);
 				} else if (isList(token)) {
 					listLevel++;
+					bulletlessLists.push(isBulletlessList(token));
 					if (token.getData().equals("ol")) {
 						numberOfOrderedLists++;
 						if(listLevel > 1){
@@ -157,7 +177,7 @@ public class Paragraph {
 							textInLine.reset();
 							lineCounter++;
 						}
-					} else if (token.getData().equals("ul")) {
+					} else if (isUnorderedList(token)) {
 						textInLine.push(sinceLastWrapPoint);
 						// check if you have some text before this list, if you don't then you really don't need extra line break for that
 						if (textInLine.trimmedWidth() > 0) {
@@ -176,14 +196,21 @@ public class Paragraph {
 			case CLOSE_TAG:
 				if (isBold(token)) {
 					bold = false;
-					currentFont = getFont(bold, italic);
+					currentFont = getFont(bold, italic, code);
 					sinceLastWrapPoint.push(token);
 				} else if (isItalic(token)) {
 					italic = false;
-					currentFont = getFont(bold, italic);
+					currentFont = getFont(bold, italic, code);
+					sinceLastWrapPoint.push(token);
+				} else if (isCode(token)) {
+					code = false;
+					currentFont = getFont(bold, italic, code);
 					sinceLastWrapPoint.push(token);
 				} else if (isList(token)) {
 					listLevel--;
+					if (!bulletlessLists.isEmpty()) {
+						bulletlessLists.pop();
+					}
 					if (token.getData().equals("ol")) {
 						numberOfOrderedLists--;
 						// reset elements
@@ -226,7 +253,8 @@ public class Paragraph {
 						} else {
 							try {
 								// if it's not left aligned then ignore list and list element and deal with it as normal text where <li> mimic <br> behaviour
-								float tabBullet = getAlign().equals(HorizontalAlignment.LEFT) ? indentLevel(DEFAULT_TAB*Math.max(listLevel - 1, 0) + DEFAULT_TAB_AND_BULLET) : indentLevel(DEFAULT_TAB);
+								float tabBullet = getAlign().equals(HorizontalAlignment.LEFT) ? indentLevel(DEFAULT_TAB*Math.max(listLevel - 1, 0)
+										+ (!bulletlessLists.isEmpty() && bulletlessLists.peek() ? NO_BULLET_TAB : DEFAULT_TAB_AND_BULLET)) : indentLevel(DEFAULT_TAB);
 								textInLine.push(currentFont, fontSize, new Token(TokenType.PADDING,
 										String.valueOf(tabBullet / 1000 * getFontSize())));
 							} catch (IOException e) {
@@ -237,13 +265,18 @@ public class Paragraph {
 					}
 					// wrapping at this must-have wrap point
 					textInLine.push(sinceLastWrapPoint);
-					// this is our line
-					result.add(textInLine.trimmedText());
-					lineWidths.put(lineCounter, textInLine.trimmedWidth());
-					mapLineTokens.put(lineCounter, textInLine.tokens());
-					maxLineWidth = Math.max(maxLineWidth, textInLine.trimmedWidth());
+					// The </li> closing an item that ended with a nested list has nothing left to
+					// put on a line but its indentation; emitting it would show up as a blank line
+					// between the sub-items and the next item of the outer list.
+					if (!textInLine.trimmedText().trim().isEmpty()) {
+						// this is our line
+						result.add(textInLine.trimmedText());
+						lineWidths.put(lineCounter, textInLine.trimmedWidth());
+						mapLineTokens.put(lineCounter, textInLine.tokens());
+						maxLineWidth = Math.max(maxLineWidth, textInLine.trimmedWidth());
+						lineCounter++;
+					}
 					textInLine.reset();
-					lineCounter++;
 					listElement = false;
 				}
 				if (isParagraph(token)) {
@@ -298,7 +331,8 @@ public class Paragraph {
 						} else {
 							try {
 								// if it's not left aligned then ignore list and list element and deal with it as normal text where <li> mimic <br> behavior
-								float tabBullet = getAlign().equals(HorizontalAlignment.LEFT) ? indentLevel(DEFAULT_TAB*Math.max(listLevel - 1, 0) + DEFAULT_TAB_AND_BULLET)  : indentLevel(DEFAULT_TAB);
+								float tabBullet = getAlign().equals(HorizontalAlignment.LEFT) ? indentLevel(DEFAULT_TAB*Math.max(listLevel - 1, 0)
+										+ (!bulletlessLists.isEmpty() && bulletlessLists.peek() ? NO_BULLET_TAB : DEFAULT_TAB_AND_BULLET))  : indentLevel(DEFAULT_TAB);
 								textInLine.push(currentFont, fontSize, new Token(TokenType.PADDING,
 										String.valueOf(tabBullet / 1000 * getFontSize())));
 							} catch (IOException e) {
@@ -341,7 +375,8 @@ public class Paragraph {
 						} else {
 							try {
 								// if it's not left aligned then ignore list and list element and deal with it as normal text where <li> mimic <br> behaviour
-								float tabBullet = getAlign().equals(HorizontalAlignment.LEFT) ? indentLevel(DEFAULT_TAB*Math.max(listLevel - 1, 0) + DEFAULT_TAB_AND_BULLET) : indentLevel(DEFAULT_TAB);
+								float tabBullet = getAlign().equals(HorizontalAlignment.LEFT) ? indentLevel(DEFAULT_TAB*Math.max(listLevel - 1, 0)
+										+ (!bulletlessLists.isEmpty() && bulletlessLists.peek() ? NO_BULLET_TAB : DEFAULT_TAB_AND_BULLET)) : indentLevel(DEFAULT_TAB);
 								textInLine.push(currentFont, fontSize, new Token(TokenType.PADDING,
 										String.valueOf(tabBullet / 1000 * getFontSize())));
 							} catch (IOException e) {
@@ -378,9 +413,16 @@ public class Paragraph {
 							}
 							textInLine.push(currentFont, fontSize, Token.text(TokenType.ORDERING, orderingNumber));
 							orderListElement++;
+						} else if (!bulletlessLists.isEmpty() && bulletlessLists.peek()) {
+							// <ul type="none">: no marker at all, not even a blank one — reserving
+							// the marker's width would push the first line further right than the
+							// wrapped ones, which is exactly the misalignment we want to avoid.
+							// The indent comes solely from the padding pushed above.
 						} else {
-							// if it's unordered list then just move by bullet character (take care of alignment!)
-							textInLine.push(currentFont, fontSize, Token.text(TokenType.BULLET, " "));
+							// if it's unordered list then just move by bullet character (take care of alignment!).
+							// A nested list gets its own marker so the level is visible at a glance.
+							textInLine.push(currentFont, fontSize,
+									Token.text(listLevel > 1 ? TokenType.BULLET_SUB : TokenType.BULLET, " "));
 						}
 					} catch (IOException e) {
 						e.printStackTrace();
@@ -411,7 +453,8 @@ public class Paragraph {
 								orderListElement++;
 							} else {
 								if(getAlign().equals(HorizontalAlignment.LEFT)){
-									float tab = indentLevel(DEFAULT_TAB*Math.max(listLevel - 1, 0) + DEFAULT_TAB + BULLET_SPACE);
+									float tab = indentLevel(DEFAULT_TAB*Math.max(listLevel - 1, 0)
+										+ (!bulletlessLists.isEmpty() && bulletlessLists.peek() ? NO_BULLET_TAB : DEFAULT_TAB + BULLET_SPACE));
 									textInLine.push(currentFont, fontSize, new Token(TokenType.PADDING,
 											String.valueOf(tab / 1000 * getFontSize())));
 								}
@@ -516,9 +559,22 @@ public class Paragraph {
 			maxLineWidth = Math.max(maxLineWidth, textInLine.trimmedWidth());
 		}
 
+		// A list adds a blank line once it closes, so that following text is set apart from it.
+		// Where the list is the last thing in the text there is nothing to set apart, and the
+		// blank line just pads the bottom of the cell — drop trailing blanks.
+		for (int i = result.size() - 1; i >= 0 && result.get(i).trim().isEmpty(); i--) {
+			result.remove(i);
+			lineWidths.remove(i);
+			mapLineTokens.remove(i);
+		}
+
 		lines = result;
 		return result;
 
+	}
+
+	private static boolean isCode(final Token token) {
+		return "code".equals(token.getData());
 	}
 
 	private static boolean isItalic(final Token token) {
@@ -538,7 +594,16 @@ public class Paragraph {
 	}
 
 	private static boolean isList(final Token token) {
-		return "ul".equals(token.getData()) || "ol".equals(token.getData());
+		return isUnorderedList(token) || "ol".equals(token.getData());
+	}
+
+	/** {@code <ul>} in either flavour — with bullets or, as {@code <ul type="none">}, without. */
+	private static boolean isUnorderedList(final Token token) {
+		return "ul".equals(token.getData()) || "ul-none".equals(token.getData());
+	}
+
+	private static boolean isBulletlessList(final Token token) {
+		return "ul-none".equals(token.getData());
 	}
 
 	private float indentLevel(int numberOfSpaces) throws IOException {
@@ -548,7 +613,30 @@ public class Paragraph {
 		return numberOfSpaces * spaceWidth;
 	}
 
+	/** The registered default font under {@code key}, or {@code fallback} when none is set. */
+	private static PDFont defaultFontOr(String key, PDFont fallback) {
+		PDFont registered = FontUtils.getDefaultfonts().get(key);
+		return registered == null ? fallback : registered;
+	}
+
 	public PDFont getFont(boolean isBold, boolean isItalic) {
+		return getFont(isBold, isItalic, false);
+	}
+
+	/**
+	 * The face for a run of text. {@code isCode} marks {@code <code>} spans, which are set in the
+	 * monospaced face — registered as {@code fontMono} (plus {@code fontMonoBold}/
+	 * {@code fontMonoItalic}) in {@link FontUtils#getDefaultfonts()}, falling back to Courier.
+	 */
+	public PDFont getFont(boolean isBold, boolean isItalic, boolean isCode) {
+		if (isCode) {
+			if (isBold) {
+				return fontMonoBold;
+			} else if (isItalic) {
+				return fontMonoItalic;
+			}
+			return fontMono;
+		}
 		if (isBold) {
 			if (isItalic) {
 				return fontBoldItalic;

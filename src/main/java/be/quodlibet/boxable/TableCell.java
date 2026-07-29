@@ -18,6 +18,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import be.quodlibet.boxable.text.Token;
+import be.quodlibet.boxable.text.TokenType;
 import be.quodlibet.boxable.utils.FontUtils;
 import be.quodlibet.boxable.utils.PDStreamUtils;
 
@@ -139,6 +140,23 @@ public class TableCell<T extends PDPage> extends Cell<T> {
 		}
 	}
 
+	/**
+	 * Paints the panel behind a {@code <code>} run. It follows the font's own ascent and descent so
+	 * the tint sits on the text rather than on the line box, and is inset a touch at the sides.
+	 */
+	static void paintCodeBackground(PageContentStreamOptimized stream, float x, float y, float width,
+			PDFont font, float fontSize) throws IOException {
+		if (CodeStyle.getBackgroundColor() == null || width <= 0) {
+			return;
+		}
+		float ascent = font.getFontDescriptor() == null ? fontSize * 0.75f
+				: font.getFontDescriptor().getAscent() / 1000 * fontSize;
+		float descent = font.getFontDescriptor() == null ? fontSize * 0.25f
+				: Math.abs(font.getFontDescriptor().getDescent()) / 1000 * fontSize;
+		PDStreamUtils.rect(stream, x, y + ascent * 0.92f, width, (ascent + descent) * 0.92f,
+				CodeStyle.getBackgroundColor());
+	}
+
 	private void createInnerTable(float tableWidth, Document document, PDPage currentPage, boolean drawTable) throws IOException {
 
 		BaseTable table = new BaseTable(yStart, PDRectangle.A4.getHeight() - pageTopMargin, pageTopMargin,
@@ -201,6 +219,7 @@ public class TableCell<T extends PDPage> extends Cell<T> {
 	private float writeOrCalculateParagraph(Paragraph paragraph, boolean onlyCalculateHeight) throws IOException {
 		int boldCounter = 0;
 		int italicCounter = 0;
+		int codeCounter = 0;
 
 		if (!onlyCalculateHeight) {
 			tableCellContentStream.setRotated(isTextRotated());
@@ -252,6 +271,8 @@ public class TableCell<T extends PDPage> extends Cell<T> {
 						boldCounter++;
 					} else if ("i".equals(token.getData())) {
 						italicCounter++;
+					} else if ("code".equals(token.getData())) {
+						codeCounter++;
 					}
 					break;
 				case CLOSE_TAG:
@@ -259,13 +280,15 @@ public class TableCell<T extends PDPage> extends Cell<T> {
 						boldCounter = Math.max(boldCounter - 1, 0);
 					} else if ("i".equals(token.getData())) {
 						italicCounter = Math.max(italicCounter - 1, 0);
+					} else if ("code".equals(token.getData())) {
+						codeCounter = Math.max(codeCounter - 1, 0);
 					}
 					break;
 				case PADDING:
 					cursorX += Float.parseFloat(token.getData());
 					break;
 				case ORDERING:
-					currentFont = paragraph.getFont(boldCounter > 0, italicCounter > 0);
+					currentFont = paragraph.getFont(boldCounter > 0, italicCounter > 0, codeCounter > 0);
 					tableCellContentStream.setFont(currentFont, getFontSize());
 					if (isTextRotated()) {
 						// if it is not calculation then draw it
@@ -284,22 +307,29 @@ public class TableCell<T extends PDPage> extends Cell<T> {
 					}
 					break;
 				case BULLET:
+				case BULLET_SUB:
+					// both occupy the same space; BULLET_SUB draws a dash rather than a square,
+					// marking an item of a nested list
+					final boolean dash = token.getType() == TokenType.BULLET_SUB;
 					float widthOfSpace = currentFont.getSpaceWidth();
 					float halfHeight = FontUtils.getHeight(currentFont, getFontSize()) / 2;
+					float markerWidth = token.getWidth(currentFont) / 1000 * getFontSize();
+					float markerHeight = widthOfSpace / 1000 * getFontSize();
+					// a dash is flatter than the square and sits on the same optical centre
+					float dashHeight = markerHeight / 3;
 					if (isTextRotated()) {
 						if (!onlyCalculateHeight) {
 							PDStreamUtils.rect(tableCellContentStream, cursorX + halfHeight, cursorY,
-									token.getWidth(currentFont) / 1000 * getFontSize(),
-									widthOfSpace / 1000 * getFontSize(), getTextColor());
+									markerWidth, dash ? dashHeight : markerHeight, getTextColor());
 						}
 						// move cursorY for two characters (one for bullet, one
 						// for space after bullet)
 						cursorY += 2 * widthOfSpace / 1000 * getFontSize();
 					} else {
 						if (!onlyCalculateHeight) {
-							PDStreamUtils.rect(tableCellContentStream, cursorX, cursorY + halfHeight,
-									token.getWidth(currentFont) / 1000 * getFontSize(),
-									widthOfSpace / 1000 * getFontSize(), getTextColor());
+							PDStreamUtils.rect(tableCellContentStream, cursorX,
+									cursorY + halfHeight + (dash ? (markerHeight - dashHeight) / 2 : 0),
+									markerWidth, dash ? dashHeight : markerHeight, getTextColor());
 						}
 						// move cursorX for two characters (one for bullet, one
 						// for space after bullet)
@@ -307,20 +337,34 @@ public class TableCell<T extends PDPage> extends Cell<T> {
 					}
 					break;
 				case TEXT:
-					currentFont = paragraph.getFont(boldCounter > 0, italicCounter > 0);
+					final boolean inCode = codeCounter > 0;
+					currentFont = paragraph.getFont(boldCounter > 0, italicCounter > 0, inCode);
 					tableCellContentStream.setFont(currentFont, getFontSize());
+					final float runWidth = token.getWidth(currentFont) / 1000 * getFontSize();
 					if (isTextRotated()) {
 						if (!onlyCalculateHeight) {
 							tableCellContentStream.newLineAt(cursorX, cursorY);
 							tableCellContentStream.showText(token.getData());
 						}
-						cursorY += token.getWidth(currentFont) / 1000 * getFontSize();
+						cursorY += runWidth;
 					} else {
 						if (!onlyCalculateHeight) {
+							// a code span gets a faint panel behind it and its own text colour;
+							// both are restored right after so the rest of the line is unaffected
+							if (inCode) {
+								paintCodeBackground(tableCellContentStream, cursorX, cursorY, runWidth,
+										currentFont, getFontSize());
+								if (CodeStyle.getTextColor() != null) {
+									tableCellContentStream.setNonStrokingColor(CodeStyle.getTextColor());
+								}
+							}
 							tableCellContentStream.newLineAt(cursorX, cursorY);
 							tableCellContentStream.showText(token.getData());
+							if (inCode) {
+								tableCellContentStream.setNonStrokingColor(getTextColor());
+							}
 						}
-						cursorX += token.getWidth(currentFont) / 1000 * getFontSize();
+						cursorX += runWidth;
 					}
 					break;
 				}

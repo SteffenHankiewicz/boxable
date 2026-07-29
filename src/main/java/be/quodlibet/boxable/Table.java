@@ -7,6 +7,7 @@ package be.quodlibet.boxable;
 import be.quodlibet.boxable.line.LineStyle;
 import be.quodlibet.boxable.page.PageProvider;
 import be.quodlibet.boxable.text.Token;
+import be.quodlibet.boxable.text.TokenType;
 import be.quodlibet.boxable.text.WrappingFunction;
 import be.quodlibet.boxable.utils.FontUtils;
 import be.quodlibet.boxable.utils.PDStreamUtils;
@@ -572,6 +573,7 @@ public abstract class Table<T extends PDPage> {
 
 				int italicCounter = 0;
 				int boldCounter = 0;
+				int codeCounter = 0;
 
 				// hyperlink run currently being drawn (from LINK_OPEN to LINK_CLOSE);
 				// a link may span several lines, so we close a rectangle at each line end
@@ -630,6 +632,8 @@ public abstract class Table<T extends PDPage> {
 								boldCounter++;
 							} else if ("i".equals(token.getData())) {
 								italicCounter++;
+							} else if ("code".equals(token.getData())) {
+								codeCounter++;
 							}
 							break;
 						case CLOSE_TAG:
@@ -637,6 +641,8 @@ public abstract class Table<T extends PDPage> {
 								boldCounter = Math.max(boldCounter - 1, 0);
 							} else if ("i".equals(token.getData())) {
 								italicCounter = Math.max(italicCounter - 1, 0);
+							} else if ("code".equals(token.getData())) {
+								codeCounter = Math.max(codeCounter - 1, 0);
 							}
 							break;
 						case LINK_OPEN:
@@ -654,7 +660,7 @@ public abstract class Table<T extends PDPage> {
 							cursorX += Float.parseFloat(token.getData());
 							break;
 						case ORDERING:
-							currentFont = cell.getParagraph().getFont(boldCounter > 0, italicCounter > 0);
+							currentFont = cell.getParagraph().getFont(boldCounter > 0, italicCounter > 0, codeCounter > 0);
 							this.tableContentStream.setFont(currentFont, cell.getFontSize());
 							if (cell.isTextRotated()) {
 								tableContentStream.newLineAt(cursorX, cursorY);
@@ -667,38 +673,63 @@ public abstract class Table<T extends PDPage> {
 							}
 							break;
 						case BULLET:
+						case BULLET_SUB:
+							// both occupy the same space; BULLET_SUB draws a dash rather than a
+							// square, marking an item of a nested list
+							final boolean dash = token.getType() == TokenType.BULLET_SUB;
                             float widthOfSpace = currentFont.getSpaceWidth();
                             float halfHeight = FontUtils.getHeight(currentFont, cell.getFontSize()) / 2.5f;
+							float markerWidth = token.getWidth(currentFont) / 1000 * cell.getFontSize() * 1.4f;
+							float markerHeight = widthOfSpace / 1000 * cell.getFontSize() * 1.4f;
+							// a dash is flatter than the square and sits on the same optical centre
+							float dashHeight = markerHeight / 3;
 							if (cell.isTextRotated()) {
-								PDStreamUtils.rect(tableContentStream, cursorX + halfHeight, cursorY,
-										token.getWidth(currentFont) / 1000 * cell.getFontSize() * 1.4f,
-                                        widthOfSpace / 1000 * cell.getFontSize() * 1.4f,
-										cell.getTextColor());
+								{
+									PDStreamUtils.rect(tableContentStream, cursorX + halfHeight, cursorY,
+											markerWidth, dash ? dashHeight : markerHeight,
+											cell.getTextColor());
+								}
 								// move cursorY for two characters (one for
 								// bullet, one for space after bullet)
 								cursorY += 4 * widthOfSpace / 1000 * cell.getFontSize();
 							} else {
-								PDStreamUtils.rect(tableContentStream, cursorX, cursorY + halfHeight,
-										token.getWidth(currentFont) / 1000 * cell.getFontSize() * 1.4f,
-                                        widthOfSpace / 1000 * cell.getFontSize() * 1.4f,
-										cell.getTextColor());
+								{
+									PDStreamUtils.rect(tableContentStream, cursorX,
+											cursorY + halfHeight + (dash ? (markerHeight - dashHeight) / 2 : 0),
+											markerWidth, dash ? dashHeight : markerHeight,
+											cell.getTextColor());
+								}
 								// move cursorX for two characters (one for
 								// bullet, one for space after bullet)
 								cursorX += 4 * widthOfSpace / 1000 * cell.getFontSize();
 							}
 							break;
 						case TEXT:
-							currentFont = cell.getParagraph().getFont(boldCounter > 0, italicCounter > 0);
+							final boolean inCode = codeCounter > 0;
+							currentFont = cell.getParagraph().getFont(boldCounter > 0, italicCounter > 0, inCode);
 							this.tableContentStream.setFont(currentFont, cell.getFontSize());
+							final float runWidth = token.getWidth(currentFont) / 1000 * cell.getFontSize();
 							if (cell.isTextRotated()) {
 								tableContentStream.newLineAt(cursorX, cursorY);
 								this.tableContentStream.showText(token.getData());
-								cursorY += token.getWidth(currentFont) / 1000 * cell.getFontSize();
+								cursorY += runWidth;
 							} else {
 								try {
+									// a code span gets a faint panel behind it and its own text
+									// colour; both are restored so the rest of the line is unaffected
+									if (inCode) {
+										TableCell.paintCodeBackground(this.tableContentStream, cursorX, cursorY,
+												runWidth, currentFont, cell.getFontSize());
+										if (CodeStyle.getTextColor() != null) {
+											this.tableContentStream.setNonStrokingColor(CodeStyle.getTextColor());
+										}
+									}
 									this.tableContentStream.newLineAt(cursorX, cursorY);
 									this.tableContentStream.showText(token.getData());
-									cursorX += token.getWidth(currentFont) / 1000 * cell.getFontSize();
+									if (inCode) {
+										this.tableContentStream.setNonStrokingColor(cell.getTextColor());
+									}
+									cursorX += runWidth;
 								} catch (IOException e) {
 									e.printStackTrace();
 								}

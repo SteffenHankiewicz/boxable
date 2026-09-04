@@ -263,10 +263,15 @@ public abstract class Table<T extends PDPage> {
 		// once during drawing and reuse it, since it will not change during drawing
 		float rowHeight = row.getHeight();
 
+		// What the page break has to weigh: this row plus everything bound to it. Equal to
+		// rowHeight unless the row asks to keep the next one with it, so nothing changes for
+		// tables that never set the flag.
+		float breakHeight = rowHeight + heightBoundAfter(row);
+
 		// if it is not header row or first row in the table then remove row's
 		// top border
 		if (row != header && row != rows.get(0)) {
-			if (!isEndOfPage(rowHeight)) {
+			if (!isEndOfPage(breakHeight)) {
 				row.removeTopBorders();
 			}
 		}
@@ -288,7 +293,7 @@ public abstract class Table<T extends PDPage> {
 			row.removeAllBorders();
 		}
 
-            if (isEndOfPage(rowHeight) && !header.contains(row)) {
+            if (isEndOfPage(breakHeight) && !header.contains(row)) {
 
 			// Draw line at bottom of table
 			endTable();
@@ -297,7 +302,7 @@ public abstract class Table<T extends PDPage> {
 			pageBreak();
 
 			// redraw all headers on each currentPage
-			if (!header.isEmpty()) {
+			if (!header.isEmpty() && !row.isOmitHeaderAfterBreak()) {
 				for (Row<T> headerRow : header) {
 					drawRow(headerRow);
 				}
@@ -880,6 +885,28 @@ public abstract class Table<T extends PDPage> {
 	public T getCurrentPage() {
 		checkNotNull(this.currentPage, "No current page defined.");
 		return this.currentPage;
+	}
+
+	/**
+	 * Total height of the rows that follow {@code row} and are bound to it through
+	 * {@link Row#isKeepWithNext()}. Zero for a row that does not ask for it, which is the
+	 * usual case and costs nothing.
+	 */
+	private float heightBoundAfter(Row<T> row) {
+		if (!row.isKeepWithNext()) {
+			return 0f;
+		}
+		int index = rows.indexOf(row);
+		if (index < 0) {
+			return 0f;
+		}
+		float height = 0f;
+		Row<T> current = row;
+		while (current.isKeepWithNext() && index + 1 < rows.size()) {
+			current = rows.get(++index);
+			height += current.getHeight();
+		}
+		return height;
 	}
 
 	private boolean isEndOfPage(float freeSpaceForPageBreak) {

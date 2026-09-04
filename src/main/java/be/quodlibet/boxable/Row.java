@@ -208,6 +208,37 @@ public class Row<T extends PDPage> {
 	 * 
 	 * @return Row's height
 	 */
+	/**
+	 * Whether this row belongs with the one after it. A page break then weighs the pair
+	 * instead of this row alone, so a heading is not left behind at the foot of a page while
+	 * what it introduces starts on the next one. Chains: flag several rows in a row and all of
+	 * them travel together.
+	 */
+	private boolean keepWithNext = false;
+
+	/**
+	 * Whether the repeated header should be left out when this row opens a new page. A row that
+	 * brings its own opening — a section heading with its own rule — would otherwise sit under
+	 * the table's header line and read as two rules stacked.
+	 */
+	private boolean omitHeaderAfterBreak = false;
+
+	public boolean isOmitHeaderAfterBreak() {
+		return omitHeaderAfterBreak;
+	}
+
+	public void setOmitHeaderAfterBreak(boolean omitHeaderAfterBreak) {
+		this.omitHeaderAfterBreak = omitHeaderAfterBreak;
+	}
+
+	public boolean isKeepWithNext() {
+		return keepWithNext;
+	}
+
+	public void setKeepWithNext(boolean keepWithNext) {
+		this.keepWithNext = keepWithNext;
+	}
+
 	public float getHeight() {
 		float maxheight = 0.0f;
 		for (Cell<T> cell : this.cells) {

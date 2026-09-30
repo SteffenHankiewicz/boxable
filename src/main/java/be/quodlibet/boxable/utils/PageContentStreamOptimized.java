@@ -122,6 +122,16 @@ public class PageContentStreamOptimized {
         pageContentStream.lineTo(x, y);
     }
 
+    public void curveTo(float x1, float y1, float x2, float y2, float x3, float y3) throws IOException {
+        endText();
+        pageContentStream.curveTo(x1, y1, x2, y2, x3, y3);
+    }
+
+    public void closePath() throws IOException {
+        endText();
+        pageContentStream.closePath();
+    }
+
     public void stroke() throws IOException {
         endText();
         pageContentStream.stroke();

@@ -7,5 +7,9 @@ public enum TokenType {
 	BULLET_SUB,
 	// hyperlink markers: LINK_OPEN carries the target URL in its data, LINK_CLOSE ends it.
 	// Zero-width, they let the renderer place a clickable PDAnnotationLink over the run.
-	LINK_OPEN, LINK_CLOSE
+	LINK_OPEN, LINK_CLOSE,
+	// badge markers from <badge bg="#rrggbb" fg="#rrggbb">: BADGE_OPEN carries "bg;fg" in its
+	// data, BADGE_CLOSE ends it. Zero-width, like the link markers; the renderer paints a
+	// rounded pill behind the run and sets its text in the badge colour.
+	BADGE_OPEN, BADGE_CLOSE
 }

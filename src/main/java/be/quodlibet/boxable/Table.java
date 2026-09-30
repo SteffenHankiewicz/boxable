@@ -586,6 +586,11 @@ public abstract class Table<T extends PDPage> {
 				float linkStartX = 0;
 				String linkUrl = null;
 
+				// badge run currently being drawn (from BADGE_OPEN to BADGE_CLOSE): its pill and
+				// text colour, or null outside a badge
+				Color badgeBackground = null;
+				Color badgeText = null;
+
 				this.tableContentStream.setRotated(cell.isTextRotated());
 
 				// print all lines of the cell
@@ -661,6 +666,16 @@ public abstract class Table<T extends PDPage> {
 							}
 							linkOpen = false;
 							break;
+						case BADGE_OPEN: {
+							String[] colors = token.getData().split(";", -1);
+							badgeBackground = parseColor(colors[0]);
+							badgeText = colors.length > 1 ? parseColor(colors[1]) : null;
+							break;
+						}
+						case BADGE_CLOSE:
+							badgeBackground = null;
+							badgeText = null;
+							break;
 						case PADDING:
 							cursorX += Float.parseFloat(token.getData());
 							break;
@@ -729,9 +744,16 @@ public abstract class Table<T extends PDPage> {
 											this.tableContentStream.setNonStrokingColor(CodeStyle.getTextColor());
 										}
 									}
+									// a badge gets a rounded pill behind it and its own text colour
+									if (badgeBackground != null) {
+										paintBadge(cursorX, cursorY, runWidth, currentFont, cell.getFontSize(), badgeBackground);
+									}
+									if (badgeText != null) {
+										this.tableContentStream.setNonStrokingColor(badgeText);
+									}
 									this.tableContentStream.newLineAt(cursorX, cursorY);
 									this.tableContentStream.showText(token.getData());
-									if (inCode) {
+									if (inCode || badgeText != null) {
 										this.tableContentStream.setNonStrokingColor(cell.getTextColor());
 									}
 									cursorX += runWidth;
@@ -761,6 +783,52 @@ public abstract class Table<T extends PDPage> {
 		// Set Y position for next row
 		yStart = yStart - rowHeight;
 
+	}
+
+	/** A {@code #rrggbb} colour, or {@code null} when the value is missing or malformed. */
+	private static Color parseColor(String hex) {
+		if (hex == null || !hex.matches("#[0-9a-fA-F]{6}")) {
+			return null;
+		}
+		return new Color(Integer.parseInt(hex.substring(1), 16));
+	}
+
+	/**
+	 * Paints the rounded pill behind a badge run. It follows the font's ascent and descent like the
+	 * code panel, reaches a little past the text on every side and is fully rounded at the ends.
+	 * The extra width sits in the spaces around the name, so the line layout stays unchanged.
+	 */
+	private void paintBadge(float x, float baselineY, float width, PDFont font, float fontSize, Color color)
+			throws IOException {
+		if (width <= 0) {
+			return;
+		}
+		float ascent = font.getFontDescriptor() == null ? fontSize * 0.75f
+				: font.getFontDescriptor().getAscent() / 1000 * fontSize;
+		float descent = font.getFontDescriptor() == null ? fontSize * 0.25f
+				: Math.abs(font.getFontDescriptor().getDescent()) / 1000 * fontSize;
+		float padX = fontSize * 0.18f;
+		float padY = fontSize * 0.08f;
+		float left = x - padX;
+		float right = x + width + padX;
+		float top = baselineY + ascent * 0.85f + padY;
+		float bottom = baselineY - descent * 0.85f - padY;
+		float radius = Math.min((top - bottom) / 2, fontSize * 0.3f);
+		// Bezier handle length for a quarter circle
+		float k = radius * 0.5523f;
+		PageContentStreamOptimized stream = this.tableContentStream;
+		stream.setNonStrokingColor(color);
+		stream.moveTo(left + radius, bottom);
+		stream.lineTo(right - radius, bottom);
+		stream.curveTo(right - radius + k, bottom, right, bottom + radius - k, right, bottom + radius);
+		stream.lineTo(right, top - radius);
+		stream.curveTo(right, top - radius + k, right - radius + k, top, right - radius, top);
+		stream.lineTo(left + radius, top);
+		stream.curveTo(left + radius - k, top, left, top - radius + k, left, top - radius);
+		stream.lineTo(left, bottom + radius);
+		stream.curveTo(left, bottom + radius - k, left + radius - k, bottom, left + radius, bottom);
+		stream.closePath();
+		stream.fill();
 	}
 
 	/**

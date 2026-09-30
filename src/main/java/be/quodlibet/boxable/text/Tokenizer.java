@@ -22,6 +22,8 @@ public final class Tokenizer {
 	/** {@code <code>…</code>}: a span set in the monospaced face. */
 	private static final Token OPEN_TAG_CODE = new Token(TokenType.OPEN_TAG, "code");
 	private static final Token CLOSE_TAG_CODE = new Token(TokenType.CLOSE_TAG, "code");
+	private static final String TAG_BADGE_OPEN = "<badge ";
+	private static final String TAG_BADGE_CLOSE = "</badge>";
 	private static final Token CLOSE_TAG_I = new Token(TokenType.CLOSE_TAG, "i");
 	private static final Token CLOSE_TAG_B = new Token(TokenType.CLOSE_TAG, "b");
 	private static final Token CLOSE_TAG_OL = new Token(TokenType.CLOSE_TAG, "ol");
@@ -59,7 +61,13 @@ public final class Tokenizer {
 
 	/** Extracts the href value from an anchor start tag like {@code <a href="url">}. */
 	private static String extractHref(final String tag) {
-		final int h = tag.indexOf("href");
+		return extractAttribute(tag, "href");
+	}
+
+	/** Extracts a quoted attribute value from a start tag, or {@code null} if it is missing. */
+	private static String extractAttribute(final String tag, final String name) {
+		// the leading blank keeps "bg" from matching inside another word
+		final int h = tag.indexOf(" " + name);
 		if (h < 0) {
 			return null;
 		}
@@ -167,6 +175,29 @@ public final class Tokenizer {
 						tokens.add(closing ? CLOSE_TAG_CODE : OPEN_TAG_CODE);
 						textIndex += (closing ? TAG_CODE_CLOSE.length() : TAG_CODE_OPEN.length()) - 1;
 						consumed = true;
+					}
+					// <badge bg="#rrggbb" fg="#rrggbb"> / </badge>: a coloured pill around a name
+					if (!consumed && (text.startsWith(TAG_BADGE_OPEN, textIndex) || text.startsWith(TAG_BADGE_CLOSE, textIndex))) {
+						final boolean closing = text.charAt(textIndex + 1) == '/';
+						final int gt = text.indexOf('>', textIndex);
+						if (gt > 0) {
+							if (sb.length() > 0) {
+								tokens.add(Token.text(TokenType.TEXT, sb.toString()));
+								sb.delete(0, sb.length());
+							}
+							if (closing) {
+								tokens.add(new Token(TokenType.BADGE_CLOSE, ""));
+							} else {
+								final String tag = text.substring(textIndex, gt);
+								final String bg = extractAttribute(tag, "bg");
+								final String fg = extractAttribute(tag, "fg");
+								tokens.add(new Token(TokenType.BADGE_OPEN,
+										(bg == null ? "" : bg) + ";" + (fg == null ? "" : fg)));
+							}
+							// jump to the '>'; the loop's textIndex++ then steps past it
+							textIndex = gt;
+							consumed = true;
+						}
 					}
 					if (!consumed && textIndex < text.length() - 2) {
 						final char lookahead1 = text.charAt(textIndex + 1);

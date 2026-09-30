@@ -467,7 +467,9 @@ public class Paragraph {
 				break;
 			case LINK_OPEN:
 			case LINK_CLOSE:
-				// zero-width hyperlink markers: keep them in the token stream so the
+			case BADGE_OPEN:
+			case BADGE_CLOSE:
+				// zero-width hyperlink and badge markers: keep them in the token stream so the
 				// renderer can place the link annotation over the run, but they add
 				// no width and are not wrap points
 				sinceLastWrapPoint.push(token);

@@ -146,4 +146,18 @@ public class TokenizerTest {
 		}
 	
 	}
+
+	@Test
+	public void badgeBecomesZeroWidthMarkersAroundItsText() throws Exception {
+		final String text = "wait for <badge bg=\"#c6e0f8\" fg=\"#135696\">Geoff</badge> now";
+		final List<Token> tokens = Tokenizer.tokenize(text, wrappingFunction);
+		final int open = tokens.indexOf(new Token(TokenType.BADGE_OPEN, "#c6e0f8;#135696"));
+		Assert.assertTrue("expected a badge-open marker carrying both colours: " + tokens, open >= 0);
+		Assert.assertEquals(Token.text(TokenType.TEXT, "Geoff"), tokens.get(open + 1));
+		Assert.assertEquals(new Token(TokenType.BADGE_CLOSE, ""), tokens.get(open + 2));
+		for (Token token : tokens) {
+			Assert.assertFalse("no markup may leak into the text: " + token,
+					token.getType() == TokenType.TEXT && token.getData().contains("<"));
+		}
+	}
 }

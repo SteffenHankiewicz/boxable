@@ -16,6 +16,7 @@ import java.util.Stack;
 import be.quodlibet.boxable.utils.PageContentStreamOptimized;
 import org.apache.pdfbox.pdmodel.font.PDFont;
 import org.apache.pdfbox.pdmodel.font.PDType1Font;
+import org.apache.pdfbox.pdmodel.font.Standard14Fonts;
 
 import be.quodlibet.boxable.text.PipelineLayer;
 import be.quodlibet.boxable.text.Token;
@@ -98,14 +99,14 @@ public class Paragraph {
 		// Each face is looked up on its own: a document may register some and not others — a
 		// typeface without an italic cut, say — and the missing ones then fall back to the
 		// built-in substitute instead of leaving the slot empty.
-		fontBold = defaultFontOr("fontBold", PDType1Font.HELVETICA_BOLD);
-		fontItalic = defaultFontOr("fontItalic", PDType1Font.HELVETICA_OBLIQUE);
-		fontBoldItalic = defaultFontOr("fontBoldItalic", PDType1Font.HELVETICA_BOLD_OBLIQUE);
+		fontBold = defaultFontOr("fontBold", new PDType1Font(Standard14Fonts.FontName.HELVETICA_BOLD));
+		fontItalic = defaultFontOr("fontItalic", new PDType1Font(Standard14Fonts.FontName.HELVETICA_OBLIQUE));
+		fontBoldItalic = defaultFontOr("fontBoldItalic", new PDType1Font(Standard14Fonts.FontName.HELVETICA_BOLD_OBLIQUE));
 		// monospaced faces are optional: without them <code> falls back to Courier, which every
 		// PDF reader has built in
-		fontMono = defaultFontOr("fontMono", PDType1Font.COURIER);
-		fontMonoBold = defaultFontOr("fontMonoBold", PDType1Font.COURIER_BOLD);
-		fontMonoItalic = defaultFontOr("fontMonoItalic", PDType1Font.COURIER_OBLIQUE);
+		fontMono = defaultFontOr("fontMono", new PDType1Font(Standard14Fonts.FontName.COURIER));
+		fontMonoBold = defaultFontOr("fontMonoBold", new PDType1Font(Standard14Fonts.FontName.COURIER_BOLD));
+		fontMonoItalic = defaultFontOr("fontMonoItalic", new PDType1Font(Standard14Fonts.FontName.COURIER_OBLIQUE));
 		this.fontSize = fontSize;
 		this.width = width;
 		this.textType = textType;
